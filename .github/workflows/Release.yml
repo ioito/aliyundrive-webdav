@@ -195,7 +195,6 @@ jobs:
         run: |
           cargo build --release --target ${{ matrix.platform.target }} ${{ matrix.platform.cargo_extra_args }}
       - name: Upx compress binary
-        if: "!startsWith(matrix.platform.target, 'mips')"
         uses: crazy-max/ghaction-upx@v1
         with:
           version: latest
