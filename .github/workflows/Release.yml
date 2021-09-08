@@ -179,6 +179,15 @@ jobs:
           - target: "armv5te-unknown-linux-musleabi"
             image_tag: "armv5te-musleabi"
             cargo_extra_args: ""
+          - target: "mips-unknown-linux-musl"
+            image_tag: "mips-musl"
+            cargo_extra_args: --no-default-features --features native-tls-vendored
+          - target: "mipsel-unknown-linux-musl"
+            image_tag: "mipsel-musl"
+            cargo_extra_args: --no-default-features --features native-tls-vendored
+          - target: "mips64-unknown-linux-muslabi64"
+            image_tag: "mips64-muslabi64"
+            cargo_extra_args: --no-default-features --features native-tls-vendored
           - target: "mips64-unknown-linux-muslabi64"
             image_tag: "mips64-muslabi64"
             cargo_extra_args: --no-default-features --features native-tls-vendored
@@ -190,6 +199,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build
+        env:
+          RUSTFLAGS: -C link-arg=-s
         run: |
           cargo build --release --target ${{ matrix.platform.target }} ${{ matrix.platform.cargo_extra_args }}
       - name: Upx compress binary
