@@ -1,12 +1,16 @@
 use std::io::SeekFrom;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
 use bytes::{Buf, Bytes};
 use futures_util::future::{self, FutureExt};
-use moka::future::{Cache, CacheBuilder};
-use tokio::{sync::oneshot, time::timeout};
+use lru_time_cache::LruCache;
+use tokio::{
+    sync::{oneshot, Mutex},
+    time::timeout,
+};
 use tracing::{debug, error, trace};
 use webdav_handler::{
     davpath::DavPath,
@@ -35,21 +39,22 @@ fn encode_path(src: &[u8]) -> String {
 #[derive(Clone)]
 pub struct AliyunDriveFileSystem {
     drive: AliyunDrive,
-    dir_cache: Cache<String, Vec<AliyunFile>>,
+    dir_cache: Arc<Mutex<LruCache<String, Vec<AliyunFile>>>>,
 }
 
 impl AliyunDriveFileSystem {
     pub async fn new(refresh_token: String, cache_size: usize) -> Result<Self> {
         let drive = AliyunDrive::new(refresh_token).await?;
-        let dir_cache = CacheBuilder::new(cache_size)
-            .time_to_live(Duration::from_secs(60 * 60))
-            .time_to_idle(Duration::from_secs(10 * 60))
-            .build();
+        let dir_cache =
+            LruCache::with_expiry_duration_and_capacity(Duration::from_secs(60 * 60), cache_size);
         debug!("dir cache initialized");
-        Ok(Self { drive, dir_cache })
+        Ok(Self {
+            drive,
+            dir_cache: Arc::new(Mutex::new(dir_cache)),
+        })
     }
 
-    fn find_in_cache(&self, path: &Path) -> Result<Option<AliyunFile>, FsError> {
+    async fn find_in_cache(&self, path: &Path) -> Result<Option<AliyunFile>, FsError> {
         if let Some(parent) = path.parent() {
             let parent_str = parent.to_string_lossy().into_owned();
             let file_name = path
@@ -57,8 +62,9 @@ impl AliyunDriveFileSystem {
                 .ok_or(FsError::NotFound)?
                 .to_string_lossy()
                 .into_owned();
-            let file = self.dir_cache.get(&parent_str).and_then(|files| {
-                for file in &files {
+            let mut dir_cache = self.dir_cache.lock().await;
+            let file = dir_cache.get(&parent_str).and_then(|files| {
+                for file in files {
                     if file.name == file_name {
                         return Some(file.clone());
                     }
@@ -75,7 +81,7 @@ impl AliyunDriveFileSystem {
     async fn get_file(&self, dav_path: &DavPath) -> Result<Option<AliyunFile>, FsError> {
         let path = dav_path.as_rel_ospath();
         let path_str = path.to_string_lossy().into_owned();
-        let file = self.find_in_cache(path)?;
+        let file = self.find_in_cache(path).await?;
         if let Some(file) = file {
             trace!("found {} file: {} in cache", path_str, file.id);
             Ok(Some(file))
@@ -115,9 +121,15 @@ impl AliyunDriveFileSystem {
         let parent_file_id = if path_str.is_empty() {
             "root".to_string()
         } else {
-            self.find_in_cache(path)?.ok_or(FsError::NotFound)?.id
+            self.find_in_cache(path).await?.ok_or(FsError::NotFound)?.id
         };
-        let files = if let Some(files) = self.dir_cache.get(&path_str) {
+
+        let files = {
+            let mut dir_cache = self.dir_cache.lock().await;
+            dir_cache.get(&path_str).cloned()
+        };
+
+        let files = if let Some(files) = files {
             let this = self.clone();
             let (tx, rx) = oneshot::channel();
             tokio::spawn(async move {
@@ -158,7 +170,8 @@ impl AliyunDriveFileSystem {
 
     async fn cache_dir(&self, dir_path: String, files: Vec<AliyunFile>) {
         trace!(path = %dir_path, count = files.len(), "cache dir");
-        self.dir_cache.insert(dir_path, files).await;
+        let mut dir_cache = self.dir_cache.lock().await;
+        dir_cache.insert(dir_path, files);
     }
 }
 
@@ -240,7 +253,8 @@ impl DavFileSystem for AliyunDriveFileSystem {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
             let path_str = path.to_string_lossy().into_owned();
-            self.dir_cache.invalidate(&path_str).await;
+            let mut dir_cache = self.dir_cache.lock().await;
+            dir_cache.remove(&path_str);
             Ok(())
         }
         .boxed()
@@ -259,7 +273,8 @@ impl DavFileSystem for AliyunDriveFileSystem {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
             let path_str = path.to_string_lossy().into_owned();
-            self.dir_cache.invalidate(&path_str).await;
+            let mut dir_cache = self.dir_cache.lock().await;
+            dir_cache.remove(&path_str);
             Ok(())
         }
         .boxed()
