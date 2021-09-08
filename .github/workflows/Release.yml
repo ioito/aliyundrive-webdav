@@ -185,15 +185,6 @@ jobs:
           - target: "mipsel-unknown-linux-musl"
             image_tag: "mipsel-musl"
             cargo_extra_args: --no-default-features --features native-tls-vendored
-          - target: "mips64-unknown-linux-muslabi64"
-            image_tag: "mips64-muslabi64"
-            cargo_extra_args: --no-default-features --features native-tls-vendored
-          - target: "mips64-unknown-linux-muslabi64"
-            image_tag: "mips64-muslabi64"
-            cargo_extra_args: --no-default-features --features native-tls-vendored
-          - target: "mips64el-unknown-linux-muslabi64"
-            image_tag: "mips64el-muslabi64"
-            cargo_extra_args: --no-default-features --features native-tls-vendored
     container:
       image: docker://messense/rust-musl-cross:${{ matrix.platform.image_tag }}
     steps:
