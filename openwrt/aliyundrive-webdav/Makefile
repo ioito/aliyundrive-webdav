@@ -16,8 +16,8 @@ ifeq ($(ARCH),arm)
   endif
 endif
 
-PKG_SOURCE:=aliyundrive-webdav-$(ARCH)-unknown-linux-$(PKG_LIBC).tar.gz
-PKG_SOURCE_URL:=https://github.com/messense/aliyundrive-webdav/releases/download/v$(PKG_VERSION)/
+PKG_SOURCE:=aliyundrive-webdav-mipsel-unknown-linux-musl.tar.gz
+PKG_SOURCE_URL:=https://github.com/ioito/aliyundrive-webdav/releases/download/v$(PKG_VERSION)/
 PKG_BUILD_DIR:=$(BUILD_DIR)/$(PKG_NAME)/$(BUILD_VARIANT)/$(PKG_NAME)-$(PKG_VERSION)-$(PKG_RELEASE)
 PKG_HASH:=skip
 
